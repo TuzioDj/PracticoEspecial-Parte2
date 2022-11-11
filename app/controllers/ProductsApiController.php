@@ -1,6 +1,7 @@
 <?php
 require_once './app/models/ProductsModel.php';
 require_once './app/views/JSONView.php';
+require_once './app/helpers/AuthHelper.php';
 
 
 class ProductsApiController
@@ -8,43 +9,49 @@ class ProductsApiController
 
     private $model;
     private $view;
-    private $data;
+    private $authHelper;
 
+    private $data;
 
     public function __construct()
     {
         $this->model = new ProductsModel();
         $this->view = new JSONView();
+        $this->authHelper = new AuthHelper();
+
         $this->data = file_get_contents("php://input");
     }
 
-    public function getAllProducts($params = NULL)
+    public function getProducts($params = NULL)
     {
         $defaultSortBy = "idProducto";
         $defaultOrder = "asc";
-        $size_pages = 10;
+        $tamanioPag = 10;
         $page = 1;
         if (isset($_GET["limit"])) {
-            $size_pages = $this->ConvertNatural($_GET["limit"], $size_pages);
+            $tamanioPag = $this->ConvertNatural($_GET["limit"], $tamanioPag);
         }
         if (isset($_GET["page"])) {
             $page = $this->ConvertNatural($_GET["page"], $page);
         }
+        if (isset($_GET["sortBy"])) {
+            $sortBy = $this->Sanitize($_GET["sortBy"]);
+        }
 
-        $start_where = ($page - 1) * $size_pages;
+        $inicioPag = ($page - 1) * $tamanioPag;
 
         try {
-            if (!empty($_GET["sortBy"]) && !empty($_GET["order"])) {
-                $products = $this->model->getAllProducts($start_where, $size_pages, $_GET["sortBy"], $_GET["order"]);
-            } 
-            else if (!empty($_GET["sortBy"])) {
-                $products = $this->model->getAllProducts($start_where, $size_pages, $_GET["sortBy"], $defaultOrder);
-            } 
-            else if (!empty($_GET["order"])) {
-                $products = $this->model->getAllProducts($start_where, $size_pages, $defaultSortBy, $_GET["order"]);
-            } 
-            else {
-                $products = $this->model->getAllProducts($start_where, $size_pages);
+
+            if (!empty($sortBy) && !empty($_GET["search"])) {
+                $products = $this->model->getFiltredProducts($inicioPag, $tamanioPag, $sortBy, $_GET["search"]);
+            } else if (!empty($sortBy) && !empty($_GET["order"])) {
+                $products = $this->model->getProducts($inicioPag, $tamanioPag, $sortBy, $_GET["order"]);
+            } else if (!empty($sortBy)) {
+                $products = $this->model->getProducts($inicioPag, $tamanioPag, $sortBy, $defaultOrder);
+            } else if (!empty($_GET["order"])) {
+                $products = $this->model->getProducts($inicioPag, $tamanioPag, $defaultSortBy, $_GET["order"]);
+            } else {
+                $products = $this->model->getProducts($inicioPag, $tamanioPag);
             }
         } catch (Exception) {
             $this->view->response("El servidor no pudo interpretar la solicitud dada una sintaxis invalida", 400);
@@ -53,6 +60,9 @@ class ProductsApiController
             $this->view->response($products, 200);
         }
     }
+
+
+
     public function getProduct($params = NULL)
     {
         $id = $params[":ID"];
@@ -66,6 +76,10 @@ class ProductsApiController
 
     public function deleteProduct($params = NULL)
     {
+        if(!$this->authHelper->isLoggedIn()){
+            $this->view->response("Necesitas loguearte para poder realizar esta accion", 401);
+            return;
+        }
         $id = $params[':ID'];
         $product = $this->model->getProduct($id);
 
@@ -78,10 +92,23 @@ class ProductsApiController
 
     public function addProduct($params = NULL)
     {
+        if(!$this->authHelper->isLoggedIn()){
+            $this->view->response("Necesitas loguearte para poder realizar esta accion", 401);
+            return;
+        }
         $data = $this->getData();
         try {
-            $id = $this->model->addProduct($data->nombre, $data->precio, $data->descripcion, $data->imagen, $data->categoria);
-            $this->view->response("El producto $id fue añadido correctamente", 200);
+            if ($this->existData($this->getData())) {
+                if(isset($data->imagen)) {
+                    $id = $this->model->addProduct($data->nombre, $data->precio, $data->descripcion, $data->imagen, $data->idTipoDeProducto);
+                    $this->view->response("El producto $id fue añadido correctamente", 200);
+                }
+                else{
+                    $this->view->response("Falta colocar una imagen", 400);
+                }
+            } else {
+                $this->view->response("Falta llenar algun campo", 400);
+            }
         } catch (Exception) {
             $this->view->response("El servidor no pudo interpretar la solicitud dada una sintaxis invalida", 400);
         }
@@ -89,15 +116,23 @@ class ProductsApiController
 
     public function editProduct($params = NULL)
     {
+        if(!$this->authHelper->isLoggedIn()){
+            $this->view->response("Necesitas loguearte para poder realizar esta accion", 401);
+            return;
+        }
         $data = $this->getData();
         try {
-            if ($data->imagen) {
-                $id = $this->model->editProduct($data->nombre, $data->precio, $data->descripcion, $data->categoria, $data->id, $data->imagen);
+            if ($this->existData($data)) {
+                if ($data->imagen) {
+                    $id = $this->model->editProduct($data->nombre, $data->precio, $data->descripcion, $data->idTipoDeProducto, $data->imagen);
+                } else {
+                    $id = $this->model->editProduct($data->nombre, $data->precio, $data->descripcion, $data->categoria, $data->id);
+                }
+                $this->view->response("El producto $id fue modificado correctamente", 200);
             }
             else {
-                $id = $this->model->editProduct($data->nombre, $data->precio, $data->descripcion, $data->categoria, $data->id);
+                $this->view->response("Falta llenar algun campo", 400);
             }
-            $this->view->response("El producto $id fue modificado correctamente", 200);
         } catch (Exception) {
             $this->view->response("El servidor no pudo interpretar la solicitud dada una sintaxis invalida", 400);
         }
@@ -119,5 +154,31 @@ class ProductsApiController
             $result = $defaultParam;
         }
         return $result;
+    }
+
+    function Sanitize($param)
+    {
+        $columns = $this->model->getAllColumns();
+        for ($i = 0; $i < sizeof($columns); $i++) {
+            $aux = $columns[$i]->COLUMN_NAME;
+            if ($aux == $param) {
+                return $param;
+            }
+        }
+        return null;
+    }
+
+    function existData($param)
+    {
+        $param->idProducto = "skipped";
+        $param->imagen = "skipped";
+        $columns = $this->model->getAllColumns();
+        for ($i = 0; $i < sizeof($columns); $i++) {
+            $aux = $columns[$i]->COLUMN_NAME;
+            if (empty($param->$aux)) {
+                return false;
+            }
+        }
+        return true;
     }
 }
