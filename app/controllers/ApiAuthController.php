@@ -49,7 +49,7 @@ class AuthApiController {
         $email = $userpass[0];
         $password = $userpass[1];
         $account = $this->model->getUserByEmail($email);
-        if($email == $account->email && password_verify($password, $account->contrasenia)){
+        if($account && $email == $account->email && password_verify($password, $account->contrasenia)){
             //  crear un token
             $header = array(
                 'alg' => 'HS256',

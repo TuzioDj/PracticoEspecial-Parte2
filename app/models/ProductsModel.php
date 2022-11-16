@@ -2,7 +2,6 @@
 
 class ProductsModel
 {
-
     private $db;
 
     public function __construct()
@@ -10,25 +9,29 @@ class ProductsModel
         $this->db = new PDO('mysql:host=localhost;' . 'dbname=practicoespecial;charset=utf8', 'root', '');
     }
     // TRAIGO TODOS LOS PRODUCTOS CON SUS RESPECTIVAS CATEGORIAS (FUSIONO TABLAS)
-    function getProducts($inicioPag, $tamanioPag, $sortedby = "idProducto", $order = "asc")
+    function getProducts($startWherePag, $pagSize, $sortedby = "idProducto", $order = "asc")
     {
-        $query = $this->db->prepare("SELECT a.*, b.* 
-                                                             FROM productos a 
-                                                             INNER JOIN tipodeproductos b 
-                                                             ON a.idTipoDeProducto = b.idTipo
-                                                             ORDER BY $sortedby $order
-                                                             LIMIT $inicioPag,$tamanioPag");
+        $query = $this->db->prepare("SELECT a.*, b.tipoDeProducto
+                                                FROM productos a 
+                                                INNER JOIN tipodeproductos b 
+                                                ON a.idTipoDeProducto = b.idTipo
+                                                ORDER BY $sortedby $order
+                                                LIMIT $startWherePag,$pagSize");
         $query->execute();
         $products = $query->fetchAll(PDO::FETCH_OBJ);
 
         return $products;
     }
     
-    function getFiltredProducts($inicioPag, $tamanioPag, $filter,$search)
+    function getFiltredProducts($startWherePag, $pagSize, $filter, $search, $sortedby, $order)
     {
-        $query = $this->db->prepare("SELECT * FROM productos
-                                                              WHERE $filter = ?
-                                                              LIMIT $inicioPag,$tamanioPag");
+        $query = $this->db->prepare("SELECT a.*, b.tipoDeProducto
+                                                FROM productos a 
+                                                INNER JOIN tipodeproductos b 
+                                                ON a.idTipoDeProducto = b.idTipo
+                                                WHERE $filter = ?
+                                                ORDER BY $sortedby $order
+                                                LIMIT $startWherePag,$pagSize");
         $query->execute([$search]);
 
         $products = $query->fetchAll(PDO::FETCH_OBJ);
@@ -39,11 +42,11 @@ class ProductsModel
     // TRAIGO UN PRODUCTO POR ID
     function getProduct($id)
     {
-        $query = $this->db->prepare("SELECT a.*, b.* 
-                                                             FROM productos a 
-                                                             INNER JOIN tipodeproductos b 
-                                                             ON a.idTipoDeProducto = b.idTipo 
-                                                             WHERE idProducto = ?");
+        $query = $this->db->prepare("SELECT a.*, b.tipoDeProducto
+                                                FROM productos a 
+                                                INNER JOIN tipodeproductos b 
+                                                ON a.idTipoDeProducto = b.idTipo 
+                                                WHERE idProducto = ?");
         $query->execute([$id]);
 
         $product = $query->fetch(PDO::FETCH_OBJ);
@@ -60,7 +63,7 @@ class ProductsModel
 
 
         $query = $this->db->prepare("INSERT INTO `productos` (`nombre`, `precio`, `descripcion`, `imagen`, `idTipoDeProducto`, `idProducto`) 
-                                                             VALUES (?, ?, ?, ?, ?, ?);");
+                                                VALUES (?, ?, ?, ?, ?, ?);");
         $query->execute([$nombre, $precio, $descripcion, $pathImg, $categoria, NULL]);
 
         return $this->db->lastInsertId();
@@ -72,13 +75,13 @@ class ProductsModel
             // SUBO LA IMAGEN AL TARGET Y RECIBO EL MISMO
             $pathImg = $this->uploadImage($imagen);
             $query = $this->db->prepare("UPDATE `productos` 
-                                                                 SET `nombre` = ?, `precio` = ?, `descripcion` = ?, `imagen` = ?, `idTipoDeProducto` = ? 
-                                                                 WHERE `productos`.`idProducto` = ?");
+                                                    SET `nombre` = ?, `precio` = ?, `descripcion` = ?, `imagen` = ?, `idTipoDeProducto` = ? 
+                                                    WHERE `productos`.`idProducto` = ?");
             $query->execute([$nombre, $precio, $descripcion, $pathImg, $categoria, $id]);
         } else {
             $query = $this->db->prepare("UPDATE `productos` 
-                                                                 SET `nombre` = ?, `precio` = ?, `descripcion` = ?, `idTipoDeProducto` = ? 
-                                                                 WHERE `productos`.`idProducto` = ?");
+                                                    SET `nombre` = ?, `precio` = ?, `descripcion` = ?, `idTipoDeProducto` = ? 
+                                                    WHERE `productos`.`idProducto` = ?");
             $query->execute([$nombre, $precio, $descripcion, $categoria, $id]);
         }
     }
@@ -86,21 +89,23 @@ class ProductsModel
     function deleteProduct($id)
     {
         $query = $this->db->prepare("DELETE FROM `productos` 
-                                                             WHERE `productos`.`idProducto` = ?");
+                                                WHERE `productos`.`idProducto` = ?");
         $query->execute([$id]);
     }
 
 
+
     function getAllColumns(){
         $query = $this->db->prepare("SELECT COLUMN_NAME 
-                                                             FROM INFORMATION_SCHEMA.COLUMNS 
-                                                             WHERE TABLE_NAME = N'productos'");
+                                                FROM INFORMATION_SCHEMA.COLUMNS 
+                                                WHERE TABLE_NAME = N'productos'");
         $query->execute();
 
         $columns = $query->fetchAll(PDO::FETCH_OBJ);
 
         return $columns;
     }
+
     private function uploadImage($image)
     {
         $target = 'img/product/' . uniqid() . '.jpg';
